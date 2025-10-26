@@ -109,23 +109,27 @@ filtered_df = df[
     ((df['Age (h)'] < 24) | pd.isna(df['Age (h)']))
 ].copy()
 
-# ذخیره در buffer (با Name)
+# ذخیره در buffer (با Name و Contract)
 output_buffer = io.BytesIO()
 with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
     filtered_df.to_excel(writer, index=False)
 output_buffer.seek(0)
 
-# پیام تلگرام: زمان + جدول top 10 با Name و Symbol
+# پیام تلگرام: زمان + جدول top 10 با Name, Symbol, Contract (لینک Solscan)
 now = datetime.now().strftime('%Y-%m-%d %H:%M')
 message = f"<b>گزارش پامپ کوین‌های Solana</b> ({now})\n\nتعداد فیلترشده: {len(filtered_df)}\n\n"
 if len(filtered_df) > 0:
     top10 = filtered_df.nlargest(10, '24h Vol (USD)')
-    message += top10[['Name', 'Symbol', '1h Change %', '24h Vol (USD)', 'MC (USD)', 'Contract Address']].to_string(index=False, float_format='%.2f')
-    message += "\n\nنکته: Contract Address رو در Solana Explorer چک کن[](https://solscan.io/token/[address])."
+    for _, row in top10.iterrows():
+        contract_link = f"https://solscan.io/token/{row['Contract Address']}"
+        message += f"<b>{row['Name']}</b> ({row['Symbol']}) | 1h: {row['1h Change %']:.2f}% | Vol: ${row['24h Vol (USD)']:,.0f} | MC: ${row['MC (USD)']:,.0f}\nContract: <a href='{contract_link}'>{row['Contract Address'][:8]}...</a>\n\n"
+    message += "نکته: روی Contract کلیک کن تا در Solscan باز بشه."
 else:
     message += "هیچ توکنی با شرایط مطابقت ندارد.\n\nنمونه top 5 by volume:\n"
     sample = df.nlargest(5, '24h Vol (USD)')
-    message += sample[['Name', 'Symbol', '24h Vol (USD)']].to_string(index=False)
+    for _, row in sample.iterrows():
+        contract_link = f"https://solscan.io/token/{row['Contract Address']}"
+        message += f"<b>{row['Name']}</b> ({row['Symbol']}) | Vol: ${row['24h Vol (USD)']:,.0f}\nContract: <a href='{contract_link}'>{row['Contract Address'][:8]}...</a>\n\n"
 
 # ارسال
 send_to_telegram(message, output_buffer if len(filtered_df) > 0 else None)
