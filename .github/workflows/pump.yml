@@ -1,0 +1,31 @@
+name: Solana Pump Report Every Hour
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # هر ساعت (دقیقه ۰)
+  workflow_dispatch:  # برای تست دستی
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        pip install requests pandas openpyxl
+
+    - name: Run dex.py
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        # جایگزینی توکن و ID در کد
+        sed -i "s/YOUR_BOT_TOKEN_HERE/${TELEGRAM_TOKEN}/g" dex.py
+        sed -i "s/YOUR_CHAT_ID_HERE/${CHAT_ID}/g" dex.py
+        python dex.py
