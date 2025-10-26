@@ -19,17 +19,22 @@ def parse_age(last_updated):
     except:
         return float('inf')
 
-# تابع ارسال به تلگرام
-def send_to_telegram(message, file_path=None):
+# تابع ارسال به تلگرام (متن + فایل از buffer)
+def send_to_telegram(message, excel_buffer=None):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
     payload = {'chat_id': CHAT_ID, 'text': message, 'parse_mode': 'HTML'}
-    requests.post(url, json=payload)
-    
-    if file_path:  # اگر فایل اکسل داری، بفرست
-        with open(file_path, 'rb') as f:
-            files = {'document': f}
-            data = {'chat_id': CHAT_ID, 'caption': 'فایل اکسل فیلترشده'}
-            requests.post(f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument', files=files, data=data)
+    response = requests.post(url, json=payload)
+    if response.status_code != 200:
+        print(f"خطا در ارسال متن: {response.text}")
+        return
+
+    if excel_buffer:  # ارسال فایل اکسل از buffer
+        excel_buffer.seek(0)
+        files = {'document': ('filtered_pump_coins_gecko.xlsx', excel_buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+        data = {'chat_id': CHAT_ID, 'caption': 'فایل اکسل فیلترشده'}
+        file_response = requests.post(f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument', files=files, data=data)
+        if file_response.status_code != 200:
+            print(f"خطا در ارسال فایل: {file_response.text}")
 
 # گام ۱: گرفتن لیست توکن‌های Solana و ذخیره contract addresses
 list_url = 'https://api.coingecko.com/api/v3/coins/list?include_platform=true'
@@ -64,7 +69,7 @@ while len(rows) < 1000:  # max ۱۰۰۰ نتیجه
         print(f"خطا در markets page {page}. صبر کنید...")
         time.sleep(2)  # rate limit
         continue
-    
+
     markets = markets_response.json()
     for coin in markets:
         symbol = coin.get('symbol', 'N/A').upper()
@@ -78,7 +83,7 @@ while len(rows) < 1000:  # max ۱۰۰۰ نتیجه
         contract = id_to_contract.get(id_, 'N/A')  # استخراج contract address
 
         rows.append([id_, f"{symbol}/SOL", symbol, price_change_1h, vol_24h, mc, age_h, contract])  # اضافه کردن contract
-    
+
     print(f"Page {page}: {len(markets)} توکن پردازش شد. کل: {len(rows)}")
     page += 1
     time.sleep(1)  # rate limit
@@ -94,11 +99,11 @@ filtered_df = df[
     ((df['Age (h)'] < 24) | pd.isna(df['Age (h)']))
 ].copy()
 
-# ذخیره در اکسل (در حافظه برای GitHub)
+# ذخیره در buffer (حافظه)
 output_buffer = io.BytesIO()
-filtered_df.to_excel(output_buffer, index=False)
+with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+    filtered_df.to_excel(writer, index=False)
 output_buffer.seek(0)
-output_file = 'filtered_pump_coins_gecko.xlsx'  # نام فایل برای ارسال
 
 # پیام تلگرام: زمان اجرا + جدول top 10
 now = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -112,12 +117,7 @@ else:
     sample = df.nlargest(5, '24h Vol (USD)')
     message += sample[['Symbol', '24h Vol (USD)']].to_string(index=False)
 
-# ارسال به تلگرام
-send_to_telegram(message)
-# ارسال فایل (اگر فیلتری باشه)
-if len(filtered_df) > 0:
-    # در GitHub، فایل رو از buffer بفرست (کد رو تنظیم کن)
-    # اما برای سادگی، فرض کن فایل محلی داری؛ در Action واقعی از buffer استفاده می‌کنیم
-    send_to_telegram("فایل اکسل ضمیمه شد.", output_file)  # اگر فایل محلی باشه
+# ارسال به تلگرام (متن + فایل از buffer)
+send_to_telegram(message, output_buffer if len(filtered_df) > 0 else None)
 
 print("گزارش به تلگرام فرستاده شد!")
